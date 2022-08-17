@@ -109,7 +109,7 @@ func unzipFile(f *zip.File, root string, uid int, gid int) error {
 
 	// Create directory tree
 	if f.FileInfo().IsDir() {
-		if err := os.MkdirAll(dst, os.ModePerm); err != nil {
+		if err := mkdirAllChown(filepath.Dir(dst), os.ModePerm, gid, uid); err != nil {
 			return err
 		}
 		return nil
@@ -142,7 +142,7 @@ func unzipFile(f *zip.File, root string, uid int, gid int) error {
 	return nil
 }
 
-// Cheap vresion of os.MkdirAll, but with UID and GID arguments
+// Cheap version of os.MkdirAll, but with UID and GID arguments
 func mkdirAllChown(path string, perm fs.FileMode, uid int, gid int) error {
 	// Fast path: if we can tell whether path is a directory or file, stop with success or error.
 	dir, err := os.Stat(path)
