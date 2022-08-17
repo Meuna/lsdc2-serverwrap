@@ -54,7 +54,6 @@ func main() {
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 
 	defer func() {
-		close(pollingC)
 		sniffTicker.Stop()
 		emptyTicker.Stop()
 		wrapped.StopProcess()

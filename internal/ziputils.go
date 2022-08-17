@@ -12,9 +12,10 @@ import (
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"go.uber.org/zap"
 )
 
-func zipToS3(bucket string, key string, root string, filenames []string) error {
+func zipToS3(logger *zap.Logger, bucket string, key string, root string, filenames []string) error {
 	buf := bytes.Buffer{}
 
 	w := zip.NewWriter(&buf)
@@ -22,19 +23,23 @@ func zipToS3(bucket string, key string, root string, filenames []string) error {
 	for _, fname := range filenames {
 		err := zipFileRecursive(w, root, fname)
 		if err != nil {
-			fmt.Println(err)
+			logger.Error("zipFileRecursive failed",
+				zap.Error(err),
+			)
 		}
 	}
 
 	// For some reason, we can't defer closing the zip writer after uploading to S3
 	if err := w.Close(); err != nil {
-		fmt.Println(err)
+		logger.Error("Close (in zipToS3) failed",
+			zap.Error(err),
+		)
 	}
 
 	return readToS3(bucket, key, bytes.NewReader(buf.Bytes()))
 }
 
-func unzipFromS3(bucket string, key string, root string, uid int, gid int) error {
+func unzipFromS3(logger *zap.Logger, bucket string, key string, root string, uid int, gid int) error {
 	buf := manager.NewWriteAtBuffer([]byte{})
 	err := writeFromS3(bucket, key, buf)
 	if err != nil {
@@ -51,7 +56,9 @@ func unzipFromS3(bucket string, key string, root string, uid int, gid int) error
 	for _, f := range r.File {
 		err := unzipFile(f, root, uid, gid)
 		if err != nil {
-			fmt.Println(err)
+			logger.Error("unzipFile failed",
+				zap.Error(err),
+			)
 		}
 	}
 	return nil

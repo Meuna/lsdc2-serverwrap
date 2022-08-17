@@ -3,11 +3,9 @@ package internal
 import (
 	"bufio"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -118,10 +116,8 @@ func (w *Wrapped) StartProcess() {
 
 func (w *Wrapped) enableLivelog(streams []io.ReadCloser) {
 	logChan := make(chan string, 5)
-	var wg sync.WaitGroup
 	for _, stream := range streams {
 		scanner := bufio.NewScanner(stream)
-		wg.Add(1)
 		go func() {
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -137,13 +133,8 @@ func (w *Wrapped) enableLivelog(streams []io.ReadCloser) {
 					logChan <- line
 				}
 			}
-			wg.Done()
 		}()
 	}
-	go func() {
-		wg.Wait()
-		close(logChan)
-	}()
 	go func() {
 		for line := range logChan {
 			w.logger.Info(line)
@@ -160,7 +151,7 @@ func (w *Wrapped) StopProcess() {
 	time.Sleep(1 * time.Second)
 
 	if w.persist {
-		log.Println("S3 upload")
+		w.logger.Info("S3 upload")
 		err := w.archiveData()
 		if err != nil {
 			w.logger.Error("archiveData failed",
@@ -172,7 +163,7 @@ func (w *Wrapped) StopProcess() {
 
 func (w *Wrapped) retrieveData() error {
 	if w.zip {
-		return unzipFromS3(w.bucket, w.key, w.zipFrom, w.uid, w.gid)
+		return unzipFromS3(w.logger, w.bucket, w.key, w.zipFrom, w.uid, w.gid)
 	} else {
 		return downloadFromS3(w.bucket, w.key, w.files[0], w.uid, w.gid)
 	}
@@ -180,7 +171,7 @@ func (w *Wrapped) retrieveData() error {
 
 func (w *Wrapped) archiveData() error {
 	if w.zip {
-		return zipToS3(w.bucket, w.key, w.zipFrom, w.files)
+		return zipToS3(w.logger, w.bucket, w.key, w.zipFrom, w.files)
 	} else {
 		return uploadToS3(w.bucket, w.key, w.files[0])
 	}
