@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"go.uber.org/zap"
 )
 
 /*
@@ -59,26 +61,34 @@ func ntoaIP4(a *C.struct_sockaddr) net.IP {
 // Open a raw socket (L2), configure it with a filter and poll it for the duration
 // in argument. Return true if the polling succeeded; return false if the polling
 // timedout
-func PollFilteredIface(iface string, filter string, timeout time.Duration) bool {
+func PollFilteredIface(logger *zap.Logger, iface string, filter string, timeout time.Duration) bool {
 	// L2 socket initialisation
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(C.htons(syscall.ETH_P_ALL)))
 	if err != nil {
-		log.Panic(err)
+		logger.Panic("syscall.Socket failed",
+			zap.Error(err),
+		)
 	}
 	defer syscall.Close(fd)
 
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 0); err != nil {
-		log.Panic(err)
+		logger.Panic("SetsockoptInt failed",
+			zap.Error(err),
+		)
 	}
 
 	applyBPFFilter(fd, iface, filter)
 
 	if err := syscall.BindToDevice(fd, iface); err != nil {
-		log.Panic(err)
+		logger.Panic("BindToDevice failed",
+			zap.Error(err),
+		)
 	}
 
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, MTU); err != nil {
-		log.Panic(err)
+		logger.Panic("SetsockoptInt failed",
+			zap.Error(err),
+		)
 	}
 
 	// Polling is here
