@@ -20,6 +20,6 @@ RUN go get -d -v ./...
 RUN go build --ldflags "-w -s -extldflags \"-static\"" -o /go/bin/serverwrap .
 
 # Now copy it into our base image.
-FROM gcr.io/distroless/base-debian11
+FROM alpine
 COPY --from=build /go/bin/serverwrap /
-ENTRYPOINT ["/serverwrap"]
+CMD ["cp", "/serverwrap", "/mnt"]
