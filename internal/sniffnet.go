@@ -36,12 +36,14 @@ func GetIP4(iface string) (net.IP, error) {
 
 	d := alldevs
 	for d != nil {
-		a := d.addresses
-		for a != nil {
-			if a.addr.sa_family == syscall.AF_INET {
-				return ntoaIP4(a.addr), nil
+		if C.GoString(d.name) == iface {
+			a := d.addresses
+			for a != nil {
+				if a.addr.sa_family == syscall.AF_INET {
+					return ntoaIP4(a.addr), nil
+				}
+				a = a.next
 			}
-			a = a.next
 		}
 		d = d.next
 	}
