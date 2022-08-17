@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"lsdc2/serverwrap/internal"
 	"os"
 	"os/signal"
@@ -10,29 +9,19 @@ import (
 	"time"
 
 	"github.com/caarlos0/env"
+	"go.uber.org/zap"
 )
 
-type config struct {
-	Iface        string        `env:"LSDC2_SNIFF_IFACE"`
-	SniffFilter  string        `env:"LSDC2_SNIFF_FILTER"`
-	Cwd          string        `env:"LSDC2_CWD"`
-	Uid          int           `env:"LSDC2_UID"`
-	Gid          int           `env:"LSDC2_GID"`
-	PersistFiles []string      `env:"LSDC2_PERSIST_FILES" envSeparator:";"`
-	Bucket       string        `env:"LSDC2_BUCKET"`
-	Key          string        `env:"LSDC2_KEY"`
-	Zip          bool          `env:"LSDC2_ZIP"`
-	ZipFrom      string        `env:"LSDC2_ZIPFROM"`
-	SniffTimeout time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
-	SniffDelay   time.Duration `env:"LSDC2_SNIFF_DELAY" envDefault:"10s"`
-	EmptyTimeout time.Duration `env:"LSDC2_EMPTY_TIMEOUT" envDefault:"5m"`
-}
-
 func main() {
-	cfg := config{}
+	logger, _ := zap.NewProduction()
+	defer logger.Sync() // flushes buffer, if any
+
+	cfg := internal.Config{}
 	err := env.Parse(&cfg)
 	if err != nil {
-		log.Panic(err)
+		logger.Panic("env parse failed",
+			zap.Error(err),
+		)
 	}
 
 	// Prepare BPF to filter on incomming IP4 packes
@@ -43,9 +32,12 @@ func main() {
 			filter = fmt.Sprintf("(%v) and (%v)", filter, cfg.SniffFilter)
 		}
 	}
+	logger.Info("BPF filter updated",
+		zap.String("filter", filter),
+	)
 
 	// Prepare and wrapped start process
-	wrapped := internal.NewWrapped(os.Args[1:])
+	wrapped := internal.NewWrapped(logger, os.Args[1:], cfg)
 	wrapped.Dir = cfg.Cwd
 	wrapped.RunAs(cfg.Uid, cfg.Gid)
 	if len(cfg.PersistFiles) > 0 {
@@ -62,6 +54,7 @@ func main() {
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 
 	defer func() {
+		close(pollingC)
 		sniffTicker.Stop()
 		emptyTicker.Stop()
 		wrapped.StopProcess()
@@ -75,13 +68,13 @@ func main() {
 			}
 		case <-sniffTicker.C:
 			go func() {
-				pollingC <- internal.PollFilteredIface(cfg.Iface, filter, cfg.SniffTimeout)
+				pollingC <- internal.PollFilteredIface(logger, cfg.Iface, filter, cfg.SniffTimeout)
 			}()
 		case <-emptyTicker.C:
-			log.Println("Server empty for too long")
+			logger.Info("server empty for too long")
 			return
 		case <-sigC:
-			log.Println("Recieved signal")
+			logger.Info("Received signal")
 			return
 		}
 	}
