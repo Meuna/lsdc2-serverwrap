@@ -20,8 +20,9 @@ type Config struct {
 	SniffTimeout time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
 	SniffDelay   time.Duration `env:"LSDC2_SNIFF_DELAY" envDefault:"10s"`
 	EmptyTimeout time.Duration `env:"LSDC2_EMPTY_TIMEOUT" envDefault:"5m"`
-	LogStderr    bool          `env:"LSDC2_LOG_STDERR" envDefault:"false"`
-	LogStdout    bool          `env:"LSDC2_LOG_STDOUT" envDefault:"false"`
+	ScanStderr   bool          `env:"LSDC2_SCAN_STDERR" envDefault:"false"`
+	ScanStdout   bool          `env:"LSDC2_SCAN_STDOUT" envDefault:"false"`
+	LogScans     bool          `env:"LSDC2_LOG_SCANS" envDefault:"false"`
 	LogFilter    []string      `env:"LSDC2_LOG_FILTER" envSeparator:";"`
 }
 
