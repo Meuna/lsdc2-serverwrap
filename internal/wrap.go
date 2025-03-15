@@ -25,22 +25,24 @@ type Wrapped struct {
 	zipFrom string
 	zip     bool
 
-	logger    *zap.Logger
-	cl        []string
-	cmd       *exec.Cmd
-	logStderr bool
-	logStdout bool
-	logFilter []string
+	logger     *zap.Logger
+	cl         []string
+	cmd        *exec.Cmd
+	scanStderr bool
+	scanStdout bool
+	logScans   bool
+	logFilter  []string
 }
 
 func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
 	return &Wrapped{
-		logger:    logger,
-		cl:        cl,
-		SigWith:   syscall.SIGTERM,
-		logStderr: cfg.LogStderr,
-		logStdout: cfg.LogStdout,
-		logFilter: cfg.LogFilter,
+		logger:     logger,
+		cl:         cl,
+		SigWith:    syscall.SIGTERM,
+		scanStderr: cfg.ScanStderr,
+		scanStdout: cfg.ScanStdout,
+		logScans:   cfg.LogScans,
+		logFilter:  cfg.LogFilter,
 	}
 }
 
@@ -71,7 +73,7 @@ func (w *Wrapped) StartProcess() {
 
 	w.logger.Debug("cmd initialisation", zap.Any("cl", w.cl))
 	w.cmd = exec.Command(w.cl[0], w.cl[1:]...)
-	logStreams := []io.ReadCloser{}
+	scannedStreams := []io.ReadCloser{}
 	if w.Dir != "" {
 		w.logger.Debug("set cmd working directory", zap.String("cwd", w.Dir))
 		w.cmd.Dir = w.Dir
@@ -81,34 +83,34 @@ func (w *Wrapped) StartProcess() {
 		w.cmd.SysProcAttr = &syscall.SysProcAttr{}
 		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.Uid), Gid: uint32(w.Gid)}
 	}
-	if w.logStderr {
+	if w.scanStderr {
 		w.logger.Debug("get cmd stderr stream")
 		stream, err := w.cmd.StderrPipe()
 		if err != nil {
 			w.logger.Panic("error in StartProcess", zap.String("culprit", "StderrPipe"), zap.Error(err))
 		}
-		logStreams = append(logStreams, stream)
+		scannedStreams = append(scannedStreams, stream)
 	}
-	if w.logStdout {
+	if w.scanStdout {
 		w.logger.Debug("get cmd stdout stream")
 		stream, err := w.cmd.StdoutPipe()
 		if err != nil {
 			w.logger.Panic("error in StartProcess", zap.String("culprit", "StdoutPipe"), zap.Error(err))
 		}
-		logStreams = append(logStreams, stream)
+		scannedStreams = append(scannedStreams, stream)
 	}
 	w.logger.Debug("start cmd")
 	if err := w.cmd.Start(); err != nil {
 		w.logger.Panic("error in StartProcess", zap.String("culprit", "Start"), zap.Error(err))
 	}
-	if len(logStreams) > 0 {
-		w.logger.Info("std livelog enabled", zap.Any("logFilter", w.logFilter))
-		w.enableLivelog(logStreams)
+	if len(scannedStreams) > 0 {
+		w.logger.Info("std scan enabled", zap.Bool("logScans", w.logScans), zap.Any("logFilter", w.logFilter))
+		w.enableStdScans(scannedStreams)
 	}
 	w.logger.Info("process started")
 }
 
-func (w *Wrapped) enableLivelog(streams []io.ReadCloser) {
+func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 	logChan := make(chan string, 5)
 	for _, stream := range streams {
 		scanner := bufio.NewScanner(stream)
@@ -116,15 +118,17 @@ func (w *Wrapped) enableLivelog(streams []io.ReadCloser) {
 			for scanner.Scan() {
 				line := scanner.Text()
 				line = strings.TrimSpace(line)
-				if len(w.logFilter) > 0 {
-					for _, word := range w.logFilter {
-						if strings.Contains(line, word) {
-							logChan <- line
-							break
+				if w.logScans {
+					if len(w.logFilter) > 0 {
+						for _, word := range w.logFilter {
+							if strings.Contains(line, word) {
+								logChan <- line
+								break
+							}
 						}
+					} else {
+						logChan <- line
 					}
-				} else {
-					logChan <- line
 				}
 			}
 		}()
