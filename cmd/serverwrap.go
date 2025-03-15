@@ -9,7 +9,6 @@ import (
 
 	"github.com/meuna/lsdc2-serverwrap/internal"
 
-	"github.com/caarlos0/env"
 	"go.uber.org/zap"
 )
 
@@ -22,10 +21,9 @@ func main() {
 	}
 	defer logger.Sync() // flushes buffer, if any
 
-	cfg := internal.Config{}
-	err := env.Parse(&cfg)
+	cfg, err := internal.ParseEnv()
 	if err != nil {
-		logger.Panic("env parse failed", zap.Error(err))
+		logger.Panic("ParseEnv failed", zap.Error(err))
 	}
 	logger.Debug("configuration parsed", zap.Any("cfg", cfg))
 
