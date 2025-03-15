@@ -17,7 +17,7 @@ func downloadFromS3(bucket string, key string, fpath string, uid int, gid int) e
 		return err
 	}
 	defer os.Chown(fpath, uid, gid)
-	return writeFromS3(bucket, key, w)
+	return streamDownloadFromS3(bucket, key, w)
 }
 
 func uploadToS3(bucket string, key string, fpath string) error {
@@ -25,10 +25,10 @@ func uploadToS3(bucket string, key string, fpath string) error {
 	if err != nil {
 		return err
 	}
-	return readToS3(bucket, key, r)
+	return streamUploadToS3(bucket, key, r)
 }
 
-func writeFromS3(bucket string, key string, w io.WriterAt) error {
+func streamDownloadFromS3(bucket string, key string, w io.WriterAt) error {
 	client, err := getClient()
 	if err != nil {
 		return err
@@ -54,7 +54,7 @@ func s3Get(bucket string, key string) (*s3.GetObjectOutput, error) {
 	return out, err
 }
 
-func readToS3(bucket string, key string, r io.Reader) error {
+func streamUploadToS3(bucket string, key string, r io.Reader) error {
 	client, err := getClient()
 	if err != nil {
 		return err

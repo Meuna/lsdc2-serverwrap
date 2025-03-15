@@ -35,8 +35,8 @@ func zipToS3(logger *zap.Logger, bucket string, key string, root string, filenam
 		return err
 	}
 
-	logger.Debug("S3 upload")
-	return readToS3(bucket, key, bytes.NewReader(buf.Bytes()))
+	logger.Debug("upload zip file to S3")
+	return streamUploadToS3(bucket, key, bytes.NewReader(buf.Bytes()))
 }
 
 func unzipFromS3(logger *zap.Logger, bucket string, key string, root string, uid int, gid int) error {
