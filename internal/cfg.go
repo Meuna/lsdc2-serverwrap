@@ -1,6 +1,10 @@
 package internal
 
-import "time"
+import (
+	"time"
+
+	"github.com/caarlos0/env"
+)
 
 type Config struct {
 	Iface        string        `env:"LSDC2_SNIFF_IFACE"`
@@ -19,4 +23,22 @@ type Config struct {
 	LogStderr    bool          `env:"LSDC2_LOG_STDERR" envDefault:"false"`
 	LogStdout    bool          `env:"LSDC2_LOG_STDOUT" envDefault:"false"`
 	LogFilter    []string      `env:"LSDC2_LOG_FILTER" envSeparator:";"`
+}
+
+func ParseEnv() (cfg Config, err error) {
+	if err = env.Parse(&cfg); err == nil {
+		// This is not redundant with the envDefault defined in Config
+		// struct because empty env variables are not equivalent to
+		// empty variables. The former makes the values 0
+		if cfg.SniffTimeout == 0 {
+			cfg.SniffTimeout = 1 * time.Second
+		}
+		if cfg.SniffDelay == 0 {
+			cfg.SniffDelay = 10 * time.Second
+		}
+		if cfg.EmptyTimeout == 0 {
+			cfg.EmptyTimeout = 5 * time.Minute
+		}
+	}
+	return
 }
