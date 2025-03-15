@@ -15,8 +15,8 @@ import (
 type Wrapped struct {
 	Dir     string
 	SigWith os.Signal
-	uid     int
-	gid     int
+	Uid     int
+	Gid     int
 
 	persist bool
 	files   []string
@@ -44,13 +44,7 @@ func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
 	}
 }
 
-func (w *Wrapped) RunAs(uid int, gid int) *Wrapped {
-	w.uid = uid
-	w.gid = gid
-	return w
-}
-
-func (w *Wrapped) PersistData(bucket string, key string, files []string, zip bool, zipFrom string) *Wrapped {
+func (w *Wrapped) SetupPersistance(bucket string, key string, files []string, zip bool, zipFrom string) *Wrapped {
 	if len(files) > 1 {
 		zip = true
 	}
@@ -66,49 +60,49 @@ func (w *Wrapped) PersistData(bucket string, key string, files []string, zip boo
 
 func (w *Wrapped) StartProcess() {
 	if w.persist {
-		w.logger.Info("S3 download")
+		w.logger.Info("downloading from S3")
 		err := w.retrieveData()
 		if err != nil {
-			w.logger.Error("retrieveData failed",
-				zap.Error(err),
-			)
+			w.logger.Error("error in StartProcess", zap.String("culprit", "retrieveData"), zap.Error(err))
+		} else {
+			w.logger.Info("S3 download done !")
 		}
 	}
 
+	w.logger.Debug("cmd initialisation", zap.Any("cl", w.cl))
 	w.cmd = exec.Command(w.cl[0], w.cl[1:]...)
 	logStreams := []io.ReadCloser{}
 	if w.Dir != "" {
+		w.logger.Debug("set cmd working directory", zap.String("cwd", w.Dir))
 		w.cmd.Dir = w.Dir
 	}
-	if (w.uid != 0) || (w.gid != 0) {
+	if (w.Uid != 0) || (w.Gid != 0) {
+		w.logger.Debug("set cmd uid/gid", zap.Int("uid", w.Uid), zap.Int("gid", w.Gid))
 		w.cmd.SysProcAttr = &syscall.SysProcAttr{}
-		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.uid), Gid: uint32(w.gid)}
+		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.Uid), Gid: uint32(w.Gid)}
 	}
 	if w.logStderr {
+		w.logger.Debug("get cmd stderr stream")
 		stream, err := w.cmd.StderrPipe()
 		if err != nil {
-			w.logger.Panic("StderrPipe failed",
-				zap.Error(err),
-			)
+			w.logger.Panic("error in StartProcess", zap.String("culprit", "StderrPipe"), zap.Error(err))
 		}
 		logStreams = append(logStreams, stream)
 	}
 	if w.logStdout {
+		w.logger.Debug("get cmd stdout stream")
 		stream, err := w.cmd.StdoutPipe()
 		if err != nil {
-			w.logger.Panic("StdoutPipe failed",
-				zap.Error(err),
-			)
+			w.logger.Panic("error in StartProcess", zap.String("culprit", "StdoutPipe"), zap.Error(err))
 		}
 		logStreams = append(logStreams, stream)
 	}
+	w.logger.Debug("start cmd")
 	if err := w.cmd.Start(); err != nil {
-		w.logger.Panic("cmd.Start failed",
-			zap.Error(err),
-		)
+		w.logger.Panic("error in StartProcess", zap.String("culprit", "Start"), zap.Error(err))
 	}
 	if len(logStreams) > 0 {
-		w.logger.Info("std livelog enabled")
+		w.logger.Info("std livelog enabled", zap.Any("logFilter", w.logFilter))
 		w.enableLivelog(logStreams)
 	}
 	w.logger.Info("process started")
@@ -163,9 +157,9 @@ func (w *Wrapped) StopProcess() {
 
 func (w *Wrapped) retrieveData() error {
 	if w.zip {
-		return unzipFromS3(w.logger, w.bucket, w.key, w.zipFrom, w.uid, w.gid)
+		return unzipFromS3(w.logger, w.bucket, w.key, w.zipFrom, w.Uid, w.Gid)
 	} else {
-		return downloadFromS3(w.bucket, w.key, w.files[0], w.uid, w.gid)
+		return downloadFromS3(w.bucket, w.key, w.files[0], w.Uid, w.Gid)
 	}
 }
 

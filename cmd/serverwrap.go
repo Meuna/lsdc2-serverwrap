@@ -14,16 +14,20 @@ import (
 )
 
 func main() {
-	logger, _ := zap.NewProduction()
+	var logger *zap.Logger
+	if os.Getenv("DEBUG") != "" {
+		logger, _ = zap.NewDevelopment()
+	} else {
+		logger, _ = zap.NewProduction()
+	}
 	defer logger.Sync() // flushes buffer, if any
 
 	cfg := internal.Config{}
 	err := env.Parse(&cfg)
 	if err != nil {
-		logger.Panic("env parse failed",
-			zap.Error(err),
-		)
+		logger.Panic("env parse failed", zap.Error(err))
 	}
+	logger.Debug("configuration parsed", zap.Any("cfg", cfg))
 
 	// Prepare BPF to filter on incomming IP4 packes
 	filter := cfg.SniffFilter
@@ -33,16 +37,16 @@ func main() {
 			filter = fmt.Sprintf("(%v) and (%v)", filter, cfg.SniffFilter)
 		}
 	}
-	logger.Info("BPF filter updated",
-		zap.String("filter", filter),
-	)
+	logger.Debug("computed BPF filter", zap.String("filter", filter))
 
 	// Prepare and wrapped start process
 	wrapped := internal.NewWrapped(logger, os.Args[1:], cfg)
 	wrapped.Dir = cfg.Cwd
-	wrapped.RunAs(cfg.Uid, cfg.Gid)
+	wrapped.Uid = cfg.Uid
+	wrapped.Gid = cfg.Gid
 	if len(cfg.PersistFiles) > 0 {
-		wrapped.PersistData(cfg.Bucket, cfg.Key, cfg.PersistFiles, cfg.Zip, cfg.ZipFrom)
+		logger.Debug("S3 persistance configured")
+		wrapped.SetupPersistance(cfg.Bucket, cfg.Key, cfg.PersistFiles, cfg.Zip, cfg.ZipFrom)
 	}
 	wrapped.StartProcess()
 
@@ -60,10 +64,12 @@ func main() {
 		wrapped.StopProcess()
 	}()
 
+	logger.Info("start monitoring network and signals")
 	for {
 		select {
 		case packetFound := <-pollingC:
 			if packetFound {
+				logger.Debug("network activity detected")
 				emptyTicker.Reset(cfg.EmptyTimeout)
 			}
 		case <-sniffTicker.C:
@@ -74,7 +80,7 @@ func main() {
 			logger.Info("server empty for too long")
 			return
 		case <-sigC:
-			logger.Info("Received signal")
+			logger.Info("received signal")
 			return
 		}
 	}
