@@ -41,6 +41,19 @@ func writeFromS3(bucket string, key string, w io.WriterAt) error {
 	return err
 }
 
+func s3Get(bucket string, key string) (*s3.GetObjectOutput, error) {
+	client, err := getClient()
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := client.GetObject(context.TODO(), &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	return out, err
+}
+
 func readToS3(bucket string, key string, r io.Reader) error {
 	client, err := getClient()
 	if err != nil {
