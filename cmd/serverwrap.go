@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"lsdc2/serverwrap/internal"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/meuna/lsdc2-serverwrap/internal"
 
 	"github.com/caarlos0/env"
 	"go.uber.org/zap"

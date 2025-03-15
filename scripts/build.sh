@@ -12,4 +12,4 @@ podman run \
     -v $HOME/go/pkg:/go/pkg \
     --workdir /go/src \
     lsdc2/serverwrap:build-image \
-    /bin/bash -c 'go get ./... && go build --ldflags "-w -s -extldflags \"-static\"" . '
+    /bin/bash -c 'go get ./... && go build --ldflags "-w -s -extldflags \"-static\"" cmd/serverwrap.go '
