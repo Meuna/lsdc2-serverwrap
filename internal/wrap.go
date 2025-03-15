@@ -152,11 +152,11 @@ func (w *Wrapped) StopProcess() {
 		w.logger.Info("S3 upload")
 		err := w.archiveData()
 		if err != nil {
-			w.logger.Error("archiveData failed",
-				zap.Error(err),
-			)
+			w.logger.Error("error in StopProcess", zap.String("culprit", "archiveData"), zap.Error(err))
 		}
 	}
+
+	w.logger.Info("goodbye !")
 }
 
 func (w *Wrapped) retrieveData() error {
