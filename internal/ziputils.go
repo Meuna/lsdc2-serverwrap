@@ -11,56 +11,68 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"go.uber.org/zap"
 )
 
 func zipToS3(logger *zap.Logger, bucket string, key string, root string, filenames []string) error {
+	logger.Debug("zipToS3", zap.String("bucket", bucket), zap.String("key", key), zap.String("root", root))
 	buf := bytes.Buffer{}
 
 	w := zip.NewWriter(&buf)
 
 	for _, fname := range filenames {
+		logger.Debug("zip file", zap.String("file", fname))
 		err := zipFileRecursive(w, root, fname)
 		if err != nil {
-			logger.Error("zipFileRecursive failed",
-				zap.Error(err),
-			)
+			logger.Error("error in zipToS3", zap.String("culprit", "zipFileRecursive"), zap.Error(err))
+			return err
 		}
 	}
 
 	// For some reason, we can't defer closing the zip writer after uploading to S3
 	if err := w.Close(); err != nil {
-		logger.Error("Close (in zipToS3) failed",
-			zap.Error(err),
-		)
+		logger.Error("error in zipToS3", zap.String("culprit", "Close"), zap.Error(err))
+		return err
 	}
 
+	logger.Debug("S3 upload")
 	return readToS3(bucket, key, bytes.NewReader(buf.Bytes()))
 }
 
 func unzipFromS3(logger *zap.Logger, bucket string, key string, root string, uid int, gid int) error {
-	buf := manager.NewWriteAtBuffer([]byte{})
-	err := writeFromS3(bucket, key, buf)
+	logger.Debug("unzipFromS3", zap.String("bucket", bucket), zap.String("key", key), zap.String("root", root))
+	logger.Debug("S3 GET call")
+	s3get, err := s3Get(bucket, key)
 	if err != nil {
 		return err
 	}
+	defer s3get.Body.Close()
 
-	bufr := bytes.NewReader(buf.Bytes())
+	buff := bytes.NewBuffer([]byte{})
+	logger.Debug("S3 download")
+	_, err = io.Copy(buff, s3get.Body)
+	if err != nil {
+		logger.Error("error in UnzipFromS3", zap.String("culprit", "bytes.NewBuffer"), zap.Error(err))
+		return err
+	}
 
-	r, err := zip.NewReader(bufr, bufr.Size())
+	logger.Debug("Download done, started unzip")
+	reader := bytes.NewReader(buff.Bytes())
+	r, err := zip.NewReader(reader, reader.Size())
 	if err != nil {
 		return err
 	}
 
 	for _, f := range r.File {
+		logger.Debug("Unzip file", zap.String("file", f.Name))
 		err := unzipFile(f, root, uid, gid)
 		if err != nil {
-			logger.Error("unzipFile failed",
-				zap.Error(err),
-			)
+			logger.Error("error in UnzipFromS3", zap.String("culprit", "unzipFile"), zap.Error(err))
+			return err
 		}
 	}
+
+	logger.Debug("Unzip done !")
 	return nil
 }
 
@@ -94,6 +106,9 @@ func zipFileRecursive(w *zip.Writer, root string, path string) error {
 		defer f.Close()
 
 		_, err = io.Copy(headerW, f)
+		if err != nil {
+			return err
+		}
 	} else {
 		// Or recurse in the directory
 		files, err := ioutil.ReadDir(fullPath)
