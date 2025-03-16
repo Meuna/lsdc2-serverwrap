@@ -18,7 +18,8 @@ export LSDC2_SNIFF_DELAY=
 export LSDC2_EMPTY_TIMEOUT=
 export LSDC2_SCAN_STDERR=true
 export LSDC2_SCAN_STDOUT=true
+export LSDC2_WAKEUP_SENTINEL="0 CET"
 export LSDC2_LOG_SCANS=true
-export LSDC2_LOG_FILTER="0 CET"
+export LSDC2_LOG_FILTER="5 CET"
 
 $src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'

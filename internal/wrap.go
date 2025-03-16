@@ -13,51 +13,53 @@ import (
 )
 
 type Wrapped struct {
-	Dir     string
-	SigWith os.Signal
-	Uid     int
-	Gid     int
+	logger *zap.Logger
 
-	persist bool
-	files   []string
-	bucket  string
-	key     string
-	zipFrom string
-	zip     bool
+	dir     string
+	sigWith os.Signal
+	uid     int
+	gid     int
 
-	logger     *zap.Logger
-	cl         []string
-	cmd        *exec.Cmd
-	scanStderr bool
-	scanStdout bool
-	logScans   bool
-	logFilter  []string
+	persist  bool
+	files    []string
+	bucket   string
+	queueUrl string
+	key      string
+	zipFrom  string
+	zip      bool
+
+	cl             []string
+	cmd            *exec.Cmd
+	scanStderr     bool
+	scanStdout     bool
+	wakeupSentinel string
+	logScans       bool
+	logFilter      []string
 }
 
 func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
 	return &Wrapped{
-		logger:     logger,
-		cl:         cl,
-		SigWith:    syscall.SIGTERM,
-		scanStderr: cfg.ScanStderr,
-		scanStdout: cfg.ScanStdout,
-		logScans:   cfg.LogScans,
-		logFilter:  cfg.LogFilter,
-	}
-}
+		logger: logger,
+		dir:    cfg.Cwd,
+		uid:    cfg.Uid,
+		gid:    cfg.Gid,
 
-func (w *Wrapped) SetupPersistance(bucket string, key string, files []string, zip bool, zipFrom string) *Wrapped {
-	if len(files) > 1 {
-		zip = true
-	}
-	w.persist = true
-	w.bucket = bucket
-	w.key = key
-	w.files = files
-	w.zip = zip
-	w.zipFrom = zipFrom
+		persist:  len(cfg.PersistFiles) > 0,
+		files:    cfg.PersistFiles,
+		bucket:   cfg.Bucket,
+		queueUrl: cfg.QueueUrl,
+		key:      cfg.Key,
+		zipFrom:  cfg.ZipFrom,
+		zip:      cfg.Zip,
 
-	return w
+		cl:             cl,
+		sigWith:        syscall.SIGTERM,
+		scanStderr:     cfg.ScanStderr,
+		scanStdout:     cfg.ScanStdout,
+		wakeupSentinel: cfg.WakeupSentinel,
+		logScans:       cfg.LogScans,
+		logFilter:      cfg.LogFilter,
+	}
 }
 
 func (w *Wrapped) StartProcess() {
@@ -71,17 +73,17 @@ func (w *Wrapped) StartProcess() {
 		}
 	}
 
-	w.logger.Debug("cmd initialisation", zap.Any("cl", w.cl))
+	w.logger.Debug("cmd initialisation", zap.Strings("cl", w.cl))
 	w.cmd = exec.Command(w.cl[0], w.cl[1:]...)
 	scannedStreams := []io.ReadCloser{}
-	if w.Dir != "" {
-		w.logger.Debug("set cmd working directory", zap.String("cwd", w.Dir))
-		w.cmd.Dir = w.Dir
+	if w.dir != "" {
+		w.logger.Debug("set cmd working directory", zap.String("cwd", w.dir))
+		w.cmd.Dir = w.dir
 	}
-	if (w.Uid != 0) || (w.Gid != 0) {
-		w.logger.Debug("set cmd uid/gid", zap.Int("uid", w.Uid), zap.Int("gid", w.Gid))
+	if (w.uid != 0) || (w.gid != 0) {
+		w.logger.Debug("set cmd uid/gid", zap.Int("uid", w.uid), zap.Int("gid", w.gid))
 		w.cmd.SysProcAttr = &syscall.SysProcAttr{}
-		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.Uid), Gid: uint32(w.Gid)}
+		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.uid), Gid: uint32(w.gid)}
 	}
 	if w.scanStderr {
 		w.logger.Debug("get cmd stderr stream")
@@ -104,14 +106,15 @@ func (w *Wrapped) StartProcess() {
 		w.logger.Panic("error in StartProcess", zap.String("culprit", "Start"), zap.Error(err))
 	}
 	if len(scannedStreams) > 0 {
-		w.logger.Info("std scan enabled", zap.Bool("logScans", w.logScans), zap.Any("logFilter", w.logFilter))
+		w.logger.Info("std scan enabled", zap.String("wakeupSentinel", w.wakeupSentinel), zap.Bool("logScans", w.logScans), zap.Any("logFilter", w.logFilter))
 		w.enableStdScans(scannedStreams)
 	}
 	w.logger.Info("process started")
 }
 
 func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
-	logChan := make(chan string, 5)
+	logChan := make(chan string, 60)
+	wakeupChan := make(chan string, 60)
 	for _, stream := range streams {
 		scanner := bufio.NewScanner(stream)
 		go func() {
@@ -130,6 +133,9 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 						logChan <- line
 					}
 				}
+				if w.wakeupSentinel != "" && strings.Contains(line, w.wakeupSentinel) {
+					wakeupChan <- line
+				}
 			}
 		}()
 	}
@@ -138,11 +144,18 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 			w.logger.Info(line)
 		}
 	}()
-
+	go func() {
+		for line := range wakeupChan {
+			w.logger.Debug("sentinel found", zap.String("sentinel", line))
+			if err := w.notifyWakeup(); err != nil {
+				w.logger.Error("error in enableStdScans", zap.String("culprit", "notifyWakeup"), zap.Error(err))
+			}
+		}
+	}()
 }
 
 func (w *Wrapped) StopProcess() {
-	w.cmd.Process.Signal(w.SigWith)
+	w.cmd.Process.Signal(w.sigWith)
 	w.cmd.Wait()
 
 	// Small wait to sync file system
@@ -161,9 +174,9 @@ func (w *Wrapped) StopProcess() {
 
 func (w *Wrapped) retrieveData() error {
 	if w.zip {
-		return unzipFromS3(w.logger, w.bucket, w.key, w.zipFrom, w.Uid, w.Gid)
+		return unzipFromS3(w.logger, w.bucket, w.key, w.zipFrom, w.uid, w.gid)
 	} else {
-		return downloadFromS3(w.bucket, w.key, w.files[0], w.Uid, w.Gid)
+		return downloadFromS3(w.bucket, w.key, w.files[0], w.uid, w.gid)
 	}
 }
 
@@ -173,4 +186,8 @@ func (w *Wrapped) archiveData() error {
 	} else {
 		return uploadToS3(w.bucket, w.key, w.files[0])
 	}
+}
+
+func (w *Wrapped) notifyWakeup() error {
+	return queueMessage(w.queueUrl, "serverwrap says hello")
 }
