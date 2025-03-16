@@ -10,7 +10,7 @@ export LSDC2_UID=1000
 export LSDC2_GID=1000
 export LSDC2_PERSIST_FILES="scripts;README.md"
 export LSDC2_BUCKET=munpri
-export LSDC2_KEY=testserverwrap
+export LSDC2_INSTANCE=testserverwrap
 export LSDC2_ZIP=
 export LSDC2_ZIPFROM=$src_dir
 export LSDC2_SNIFF_TIMEOUT=
@@ -18,7 +18,8 @@ export LSDC2_SNIFF_DELAY=
 export LSDC2_EMPTY_TIMEOUT=
 export LSDC2_SCAN_STDERR=true
 export LSDC2_SCAN_STDOUT=true
+export LSDC2_WAKEUP_SENTINEL="0 CET"
 export LSDC2_LOG_SCANS=true
-export LSDC2_LOG_FILTER="0 CET"
+export LSDC2_LOG_FILTER="5 CET"
 
 $src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'

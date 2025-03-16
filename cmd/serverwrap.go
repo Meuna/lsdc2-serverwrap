@@ -39,13 +39,8 @@ func main() {
 
 	// Prepare and wrapped start process
 	wrapped := internal.NewWrapped(logger, os.Args[1:], cfg)
-	wrapped.Dir = cfg.Cwd
-	wrapped.Uid = cfg.Uid
-	wrapped.Gid = cfg.Gid
-	if len(cfg.PersistFiles) > 0 {
-		logger.Debug("S3 persistance configured")
-		wrapped.SetupPersistance(cfg.Bucket, cfg.Key, cfg.PersistFiles, cfg.Zip, cfg.ZipFrom)
-	}
+	logger.Debug("wrapped initialised")
+
 	wrapped.StartProcess()
 
 	// Start channel monitoring
