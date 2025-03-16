@@ -52,7 +52,7 @@ func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
 		queueUrl: cfg.QueueUrl,
 		instance: cfg.Instance,
 		zipFrom:  cfg.ZipFrom,
-		zip:      cfg.Zip,
+		zip:      len(cfg.PersistFiles) > 1 || cfg.Zip,
 
 		cl:             cl,
 		sigWith:        syscall.SIGTERM,
