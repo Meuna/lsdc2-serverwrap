@@ -1,15 +1,19 @@
 module github.com/meuna/lsdc2-serverwrap
 
-go 1.22
+go 1.23.0
+
+toolchain go1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.9
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.66
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.210.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.78.2
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.38.1
 	github.com/caarlos0/env v3.5.0+incompatible
 	go.uber.org/zap v1.27.0
+	golang.org/x/sys v0.31.0
 )
 
 require (

@@ -45,6 +45,7 @@ func main() {
 
 	// Start channel monitoring
 	pollingC := make(chan bool)
+	terminationCheckTicker := time.NewTicker(cfg.TerminationCheckDelay)
 	sniffTicker := time.NewTicker(cfg.SniffDelay)
 	emptyTicker := time.NewTicker(cfg.EmptyTimeout)
 
@@ -52,10 +53,15 @@ func main() {
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 
 	defer func() {
+		terminationCheckTicker.Stop()
 		sniffTicker.Stop()
 		emptyTicker.Stop()
 		wrapped.StopProcess()
 	}()
+
+	if !cfg.InEc2Instance {
+		terminationCheckTicker.Stop()
+	}
 
 	logger.Info("start monitoring network and signals")
 	for {
@@ -67,11 +73,33 @@ func main() {
 			}
 		case <-sniffTicker.C:
 			go func() {
-				pollingC <- internal.PollFilteredIface(logger, cfg.Iface, filter, cfg.SniffTimeout)
+				packetFound, err := internal.PollFilteredIface(cfg.Iface, filter, cfg.SniffTimeout)
+				if err != nil {
+					logger.Error("error polling network",
+						zap.String("iface", cfg.Iface),
+						zap.String("filter", filter),
+						zap.Error(err),
+					)
+					if cfg.PanicOnSocketError {
+						panic(err)
+					}
+				}
+				pollingC <- packetFound
 			}()
 		case <-emptyTicker.C:
 			logger.Info("server empty for too long")
 			return
+		case <-terminationCheckTicker.C:
+			if cfg.InEc2Instance {
+				terminationNotified, err := internal.SpotTerminationIsNotified()
+				if err != nil {
+					logger.Error("error getting termination notification", zap.Error(err))
+					wrapped.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+				}
+				if terminationNotified {
+					return
+				}
+			}
 		case <-sigC:
 			logger.Info("received signal")
 			return
