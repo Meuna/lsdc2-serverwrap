@@ -8,8 +8,6 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
-
-	"go.uber.org/zap"
 )
 
 /*
@@ -63,34 +61,39 @@ func ntoaIP4(a *C.struct_sockaddr) net.IP {
 // Open a raw socket (L2), configure it with a filter and poll it for the duration
 // in argument. Return true if the polling succeeded; return false if the polling
 // timedout
-func PollFilteredIface(logger *zap.Logger, iface string, filter string, timeout time.Duration) bool {
+func PollFilteredIface(iface string, filter string, timeout time.Duration) (bool, error) {
 	// L2 socket initialisation
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(C.htons(syscall.ETH_P_ALL)))
 	if err != nil {
-		logger.Panic("syscall.Socket failed",
-			zap.Error(err),
-		)
+		return false, fmt.Errorf("syscall.Socket / %w", err)
 	}
 	defer syscall.Close(fd)
 
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 0); err != nil {
-		logger.Panic("SetsockoptInt failed",
-			zap.Error(err),
-		)
+		return false, fmt.Errorf("syscall.SetsockoptInt / %w", err)
 	}
 
 	applyBPFFilter(fd, iface, filter)
 
 	if err := syscall.BindToDevice(fd, iface); err != nil {
-		logger.Panic("BindToDevice failed",
-			zap.Error(err),
-		)
+		return false, fmt.Errorf("syscall.BindToDevice / %w", err)
 	}
 
 	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, MTU); err != nil {
-		logger.Panic("SetsockoptInt failed",
-			zap.Error(err),
-		)
+		return false, fmt.Errorf("syscall.SetsockoptInt / %w", err)
+	}
+
+	// Empty the socket buffer in case some packet arrived while we were applying the filter
+	buffer := make([]byte, MTU)
+	for {
+		_, _, err := syscall.Recvfrom(fd, buffer, syscall.MSG_DONTWAIT)
+		if err != nil {
+			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
+				// No more data to read
+				break
+			}
+			return false, fmt.Errorf("syscall.Recvfrom / %w", err)
+		}
 	}
 
 	// Polling is here
@@ -99,18 +102,18 @@ func PollFilteredIface(logger *zap.Logger, iface string, filter string, timeout 
 	C.poll(&pfd, 1, C.int(msec))
 
 	packetsFound := (pfd.events & pfd.revents) > 0
-	return packetsFound
+	return packetsFound, nil
 }
 
 // Compile and apply a filter to the socket in argument.
-func applyBPFFilter(fd int, device string, filter string) {
+func applyBPFFilter(fd int, iface string, filter string) {
 	// Inspired by gopacket module, not clear why the mask is needed
-	_, maskp, err := pcapLookupnet(device)
+	_, maskp, err := pcapLookupnet(iface)
 	if err != nil {
 		maskp = uint32(C.PCAP_NETMASK_UNKNOWN)
 	}
 
-	pcap_bpf, err := pcapCompile(device, filter, maskp)
+	pcap_bpf, err := pcapCompile(filter, maskp)
 	defer C.pcap_freecode((*C.struct_bpf_program)(&pcap_bpf))
 	if err != nil {
 		log.Panic(err)
@@ -146,9 +149,10 @@ func pcapLookupnet(device string) (netp uint32, maskp uint32, err error) {
 // free the program using C.pcap_freecode.
 //
 // Example:
-//		bpf, err := pcapCompile(device, filter, maskp)
-// 		defer C.pcap_freecode((*C.struct_bpf_program)(&bpf))
-func pcapCompile(device string, filter string, maskp uint32) (C.struct_bpf_program, error) {
+//
+//	bpf, err := pcapCompile(device, filter, maskp)
+//	defer C.pcap_freecode((*C.struct_bpf_program)(&bpf))
+func pcapCompile(filter string, maskp uint32) (C.struct_bpf_program, error) {
 	// DLT_EN10MB is for Ethernet, which is assumed here
 	p := C.pcap_open_dead(C.DLT_EN10MB, C.int(MTU))
 	defer C.pcap_close(p)

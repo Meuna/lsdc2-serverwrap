@@ -22,13 +22,14 @@ type Wrapped struct {
 	uid     int
 	gid     int
 
-	persist  bool
-	files    []string
-	bucket   string
-	queueUrl string
-	instance string
-	zipFrom  string
-	zip      bool
+	persist       bool
+	files         []string
+	bucket        string
+	queueUrl      string
+	server        string
+	zipFrom       string
+	zip           bool
+	inEc2Instance bool
 
 	cl             []string
 	cmd            *exec.Cmd
@@ -42,17 +43,18 @@ type Wrapped struct {
 func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
 	return &Wrapped{
 		logger: logger,
-		dir:    cfg.Cwd,
+		dir:    cfg.Home,
 		uid:    cfg.Uid,
 		gid:    cfg.Gid,
 
-		persist:  len(cfg.PersistFiles) > 0,
-		files:    cfg.PersistFiles,
-		bucket:   cfg.Bucket,
-		queueUrl: cfg.QueueUrl,
-		instance: cfg.Instance,
-		zipFrom:  cfg.ZipFrom,
-		zip:      len(cfg.PersistFiles) > 1 || cfg.Zip,
+		persist:       len(cfg.PersistFiles) > 0,
+		files:         cfg.PersistFiles,
+		bucket:        cfg.Bucket,
+		queueUrl:      cfg.QueueUrl,
+		server:        cfg.Server,
+		zipFrom:       cfg.ZipFrom,
+		zip:           len(cfg.PersistFiles) > 1 || cfg.Zip,
+		inEc2Instance: cfg.InEc2Instance,
 
 		cl:             cl,
 		sigWith:        syscall.SIGTERM,
@@ -149,7 +151,7 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 	go func() {
 		for line := range wakeupChan {
 			w.logger.Info("sentinel found", zap.String("sentinel", line))
-			if err := w.notifyWakeup("The server is ready !"); err != nil {
+			if err := w.NotifyBackend("The server is ready !"); err != nil {
 				w.logger.Error("error in enableStdScans", zap.String("culprit", "notifyWakeup"), zap.Error(err))
 			}
 		}
@@ -171,26 +173,37 @@ func (w *Wrapped) StopProcess() {
 		}
 	}
 
+	if w.inEc2Instance {
+		w.logger.Info("issue shutdown in 1 minutes")
+		cmd := exec.Command("shutdown", "+1")
+
+		err := cmd.Run()
+		if err != nil {
+			w.logger.Error("error in StopProcess", zap.String("culprit", "Run"), zap.Error(err))
+			w.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+		}
+	}
+
 	w.logger.Info("goodbye !")
 }
 
 func (w *Wrapped) retrieveData() error {
 	if w.zip {
-		return unzipFromS3(w.logger, w.bucket, w.instance, w.zipFrom, w.uid, w.gid)
+		return unzipFromS3(w.logger, w.bucket, w.server, w.zipFrom, w.uid, w.gid)
 	} else {
-		return downloadFromS3(w.bucket, w.instance, w.files[0], w.uid, w.gid)
+		return downloadFromS3(w.bucket, w.server, w.files[0], w.uid, w.gid)
 	}
 }
 
 func (w *Wrapped) archiveData() error {
 	if w.zip {
-		return zipToS3(w.logger, w.bucket, w.instance, w.zipFrom, w.files)
+		return zipToS3(w.logger, w.bucket, w.server, w.zipFrom, w.files)
 	} else {
-		return uploadToS3(w.bucket, w.instance, w.files[0])
+		return uploadToS3(w.bucket, w.server, w.files[0])
 	}
 }
 
-func (w *Wrapped) notifyWakeup(msg string) error {
+func (w *Wrapped) NotifyBackend(msg string) error {
 	cmd := struct {
 		Api  string
 		Args any
@@ -200,7 +213,7 @@ func (w *Wrapped) notifyWakeup(msg string) error {
 			InstanceName string
 			Message      string
 		}{
-			InstanceName: w.instance,
+			InstanceName: w.server,
 			Message:      msg,
 		},
 	}
