@@ -11,63 +11,87 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/caarlos0/env"
 	"go.uber.org/zap"
 )
 
 type Wrapped struct {
-	logger *zap.Logger
-
-	dir     string
+	logger  *zap.Logger
+	cl      []string
+	cmd     *exec.Cmd
 	sigWith os.Signal
-	uid     int
-	gid     int
 
-	persist       bool
-	files         []string
-	bucket        string
-	queueUrl      string
-	server        string
-	zipFrom       string
-	zip           bool
-	inEc2Instance bool
+	Home string `env:"LSDC2_HOME"`
+	Uid  int    `env:"LSDC2_UID"`
+	Gid  int    `env:"LSDC2_GID"`
 
-	cl             []string
-	cmd            *exec.Cmd
-	scanStderr     bool
-	scanStdout     bool
-	wakeupSentinel string
-	logScans       bool
-	logFilter      []string
+	QueueUrl     string   `env:"LSDC2_QUEUE_URL"`
+	PersistFiles []string `env:"LSDC2_PERSIST_FILES" envSeparator:";"`
+	Bucket       string   `env:"LSDC2_BUCKET"`
+	Server       string   `env:"LSDC2_SERVER"`
+	Zip          bool     `env:"LSDC2_ZIP"`
+	ZipFrom      string   `env:"LSDC2_ZIPFROM"`
+
+	InEc2Instance         bool
+	TerminationCheckDelay time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"10s"`
+	Iface                 string        `env:"LSDC2_SNIFF_IFACE"`
+	SniffFilter           string        `env:"LSDC2_SNIFF_FILTER"`
+	SniffTimeout          time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
+	SniffDelay            time.Duration `env:"LSDC2_SNIFF_DELAY" envDefault:"10s"`
+	EmptyTimeout          time.Duration `env:"LSDC2_EMPTY_TIMEOUT" envDefault:"5m"`
+
+	ScanStderr     bool     `env:"LSDC2_SCAN_STDERR" envDefault:"false"`
+	ScanStdout     bool     `env:"LSDC2_SCAN_STDOUT" envDefault:"false"`
+	WakeupSentinel string   `env:"LSDC2_WAKEUP_SENTINEL"`
+	LogScans       bool     `env:"LSDC2_LOG_SCANS" envDefault:"false"`
+	LogFilter      []string `env:"LSDC2_LOG_FILTER" envSeparator:";"`
+
+	PanicOnSocketError bool `env:"PANIC_ON_SOCKET_ERROR" envDefault:"true"`
 }
 
-func NewWrapped(logger *zap.Logger, cl []string, cfg Config) *Wrapped {
-	return &Wrapped{
-		logger: logger,
-		dir:    cfg.Home,
-		uid:    cfg.Uid,
-		gid:    cfg.Gid,
-
-		persist:       len(cfg.PersistFiles) > 0,
-		files:         cfg.PersistFiles,
-		bucket:        cfg.Bucket,
-		queueUrl:      cfg.QueueUrl,
-		server:        cfg.Server,
-		zipFrom:       cfg.ZipFrom,
-		zip:           len(cfg.PersistFiles) > 1 || cfg.Zip,
-		inEc2Instance: cfg.InEc2Instance,
-
-		cl:             cl,
-		sigWith:        syscall.SIGTERM,
-		scanStderr:     cfg.ScanStderr,
-		scanStdout:     cfg.ScanStdout,
-		wakeupSentinel: cfg.WakeupSentinel,
-		logScans:       cfg.LogScans,
-		logFilter:      cfg.LogFilter,
+func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
+	w := Wrapped{}
+	var err error
+	if err = env.Parse(&w); err != nil {
+		panic(err)
 	}
+	// This is not redundant with the envDefault defined in Config
+	// struct because empty env variables are not equivalent to
+	// empty variables. The former makes the values 0
+	if w.SniffTimeout == 0 {
+		w.SniffTimeout = 1 * time.Second
+	}
+	if w.SniffDelay == 0 {
+		w.SniffDelay = 10 * time.Second
+	}
+	if w.EmptyTimeout == 0 {
+		w.EmptyTimeout = 5 * time.Minute
+	}
+
+	w.logger = logger
+	w.cl = cl
+	w.sigWith = syscall.SIGTERM
+	w.InEc2Instance, err = AreWeRunningEc2()
+	if err != nil {
+		w.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+	}
+
+	return w
+}
+
+func (w *Wrapped) UpdateFilterWithDestination() {
+	if ip, err := GetIP4(w.Iface); err == nil {
+		filterWithDest := fmt.Sprintf("dst host %v", ip)
+		if w.SniffFilter != "" {
+			filterWithDest = fmt.Sprintf("(%v) and (%v)", filterWithDest, w.SniffFilter)
+		}
+		w.SniffFilter = filterWithDest
+	}
+	w.logger.Debug("final BPF filter", zap.String("filter", w.SniffFilter))
 }
 
 func (w *Wrapped) StartProcess() {
-	if w.persist {
+	if len(w.PersistFiles) > 0 {
 		w.logger.Info("downloading from S3")
 		err := w.retrieveData()
 		if err != nil {
@@ -80,16 +104,16 @@ func (w *Wrapped) StartProcess() {
 	w.logger.Debug("cmd initialisation", zap.Strings("cl", w.cl))
 	w.cmd = exec.Command(w.cl[0], w.cl[1:]...)
 	scannedStreams := []io.ReadCloser{}
-	if w.dir != "" {
-		w.logger.Debug("set cmd working directory", zap.String("cwd", w.dir))
-		w.cmd.Dir = w.dir
+	if w.Home != "" {
+		w.logger.Debug("set cmd working directory", zap.String("cwd", w.Home))
+		w.cmd.Dir = w.Home
 	}
-	if (w.uid != 0) || (w.gid != 0) {
-		w.logger.Debug("set cmd uid/gid", zap.Int("uid", w.uid), zap.Int("gid", w.gid))
+	if (w.Uid != 0) || (w.Gid != 0) {
+		w.logger.Debug("set cmd uid/gid", zap.Int("uid", w.Uid), zap.Int("gid", w.Gid))
 		w.cmd.SysProcAttr = &syscall.SysProcAttr{}
-		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.uid), Gid: uint32(w.gid)}
+		w.cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(w.Uid), Gid: uint32(w.Gid)}
 	}
-	if w.scanStderr {
+	if w.ScanStderr {
 		w.logger.Debug("get cmd stderr stream")
 		stream, err := w.cmd.StderrPipe()
 		if err != nil {
@@ -97,7 +121,7 @@ func (w *Wrapped) StartProcess() {
 		}
 		scannedStreams = append(scannedStreams, stream)
 	}
-	if w.scanStdout {
+	if w.ScanStdout {
 		w.logger.Debug("get cmd stdout stream")
 		stream, err := w.cmd.StdoutPipe()
 		if err != nil {
@@ -110,7 +134,7 @@ func (w *Wrapped) StartProcess() {
 		w.logger.Panic("error in StartProcess", zap.String("culprit", "Start"), zap.Error(err))
 	}
 	if len(scannedStreams) > 0 {
-		w.logger.Info("std scan enabled", zap.String("wakeupSentinel", w.wakeupSentinel), zap.Bool("logScans", w.logScans), zap.Any("logFilter", w.logFilter))
+		w.logger.Info("std scan enabled", zap.String("wakeupSentinel", w.WakeupSentinel), zap.Bool("logScans", w.LogScans), zap.Any("logFilter", w.LogFilter))
 		w.enableStdScans(scannedStreams)
 	}
 	w.logger.Info("process started")
@@ -125,9 +149,9 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 			for scanner.Scan() {
 				line := scanner.Text()
 				line = strings.TrimSpace(line)
-				if w.logScans {
-					if len(w.logFilter) > 0 {
-						for _, word := range w.logFilter {
+				if w.LogScans {
+					if len(w.LogFilter) > 0 {
+						for _, word := range w.LogFilter {
 							if strings.Contains(line, word) {
 								logChan <- line
 								break
@@ -137,10 +161,12 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 						logChan <- line
 					}
 				}
-				if w.wakeupSentinel != "" && strings.Contains(line, w.wakeupSentinel) {
+				if w.WakeupSentinel != "" && strings.Contains(line, w.WakeupSentinel) {
 					wakeupChan <- line
 				}
 			}
+			close(logChan)
+			close(wakeupChan)
 		}()
 	}
 	go func() {
@@ -151,11 +177,24 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 	go func() {
 		for line := range wakeupChan {
 			w.logger.Info("sentinel found", zap.String("sentinel", line))
-			if err := w.NotifyBackend("The server is ready !"); err != nil {
-				w.logger.Error("error in enableStdScans", zap.String("culprit", "notifyWakeup"), zap.Error(err))
-			}
+			w.NotifyBackend("The server is ready !")
 		}
 	}()
+}
+
+func (w *Wrapped) PollProcessPackets() bool {
+	packetFound, err := PollFilteredIface(w.Iface, w.SniffFilter, w.SniffTimeout)
+	if err != nil {
+		w.logger.Error("error polling network",
+			zap.String("iface", w.Iface),
+			zap.String("filter", w.SniffFilter),
+			zap.Error(err),
+		)
+		if w.PanicOnSocketError {
+			panic(err)
+		}
+	}
+	return packetFound
 }
 
 func (w *Wrapped) StopProcess() {
@@ -165,7 +204,7 @@ func (w *Wrapped) StopProcess() {
 	// Small wait to sync file system
 	time.Sleep(1 * time.Second)
 
-	if w.persist {
+	if len(w.PersistFiles) > 0 {
 		w.logger.Info("S3 upload")
 		err := w.archiveData()
 		if err != nil {
@@ -173,7 +212,7 @@ func (w *Wrapped) StopProcess() {
 		}
 	}
 
-	if w.inEc2Instance {
+	if w.InEc2Instance {
 		w.logger.Info("issue shutdown in 1 minutes")
 		cmd := exec.Command("shutdown", "+1")
 
@@ -188,22 +227,22 @@ func (w *Wrapped) StopProcess() {
 }
 
 func (w *Wrapped) retrieveData() error {
-	if w.zip {
-		return unzipFromS3(w.logger, w.bucket, w.server, w.zipFrom, w.uid, w.gid)
+	if w.Zip {
+		return unzipFromS3(w.logger, w.Bucket, w.Server, w.ZipFrom, w.Uid, w.Gid)
 	} else {
-		return downloadFromS3(w.bucket, w.server, w.files[0], w.uid, w.gid)
+		return downloadFromS3(w.Bucket, w.Server, w.PersistFiles[0], w.Uid, w.Gid)
 	}
 }
 
 func (w *Wrapped) archiveData() error {
-	if w.zip {
-		return zipToS3(w.logger, w.bucket, w.server, w.zipFrom, w.files)
+	if w.Zip {
+		return zipToS3(w.logger, w.Bucket, w.Server, w.ZipFrom, w.PersistFiles)
 	} else {
-		return uploadToS3(w.bucket, w.server, w.files[0])
+		return uploadToS3(w.Bucket, w.Server, w.PersistFiles[0])
 	}
 }
 
-func (w *Wrapped) NotifyBackend(msg string) error {
+func (w *Wrapped) NotifyBackend(msg string) {
 	cmd := struct {
 		Api  string
 		Args any
@@ -213,13 +252,17 @@ func (w *Wrapped) NotifyBackend(msg string) error {
 			InstanceName string
 			Message      string
 		}{
-			InstanceName: w.server,
+			InstanceName: w.Server,
 			Message:      msg,
 		},
 	}
 	bodyBytes, err := json.Marshal(cmd)
 	if err != nil {
-		return fmt.Errorf("json.Marshal / %w", err)
+		w.logger.Error("error in NotifyBackend", zap.String("culprit", "Marshal"), zap.Error(err))
+		return
 	}
-	return queueMessage(w.queueUrl, string(bodyBytes[:]))
+	err = queueMessage(w.QueueUrl, string(bodyBytes[:]))
+	if err != nil {
+		w.logger.Error("error in NotifyBackend", zap.String("culprit", "queueMessage"), zap.Error(err))
+	}
 }
