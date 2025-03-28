@@ -223,8 +223,8 @@ func (w *Wrapped) StopProcess() {
 
 func (w *Wrapped) ShutdownWhenInEc2() {
 	if w.InEc2Instance {
-		w.logger.Info("issue shutdown in 1 minutes")
-		cmd := exec.Command("shutdown", "+1")
+		w.logger.Info("issue shutdown")
+		cmd := exec.Command("shutdown", "now")
 
 		err := cmd.Run()
 		if err != nil {
