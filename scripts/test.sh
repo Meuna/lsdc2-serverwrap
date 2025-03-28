@@ -3,14 +3,15 @@
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 src_dir=$script_dir/..
 
-export LSDC2_SNIFF_IFACE=eth0
-export LSDC2_SNIFF_FILTER="tcp port 443"
-export LSDC2_CWD=
+export LSDC2_HOME=
 export LSDC2_UID=1000
 export LSDC2_GID=1000
+export LSDC2_SNIFF_IFACE=eth0
+export LSDC2_SNIFF_FILTER="tcp port 443"
+export LSDC2_QUEUE_URL=
 export LSDC2_PERSIST_FILES="scripts;README.md"
 export LSDC2_BUCKET=munpri
-export LSDC2_INSTANCE=testserverwrap
+export LSDC2_SERVER=testserverwrap
 export LSDC2_ZIP=
 export LSDC2_ZIPFROM=$src_dir
 export LSDC2_SNIFF_TIMEOUT=
@@ -21,5 +22,7 @@ export LSDC2_SCAN_STDOUT=true
 export LSDC2_WAKEUP_SENTINEL="0 CET"
 export LSDC2_LOG_SCANS=true
 export LSDC2_LOG_FILTER="5 CET"
+export PANIC_ON_SOCKET_ERROR=false
+export DISABLE_SHUTDOWN_CALLS=true
 
 $src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'
