@@ -53,6 +53,7 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	w := Wrapped{}
 	var err error
 	if err = env.Parse(&w); err != nil {
+		w.ShutdownWhenInEc2()
 		panic(err)
 	}
 	// This is not redundant with the envDefault defined in Config
@@ -67,6 +68,8 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	if w.EmptyTimeout == 0 {
 		w.EmptyTimeout = 5 * time.Minute
 	}
+
+	w.Zip = w.Zip || len(w.PersistFiles) > 1
 
 	w.logger = logger
 	w.cl = cl
@@ -191,6 +194,7 @@ func (w *Wrapped) PollProcessPackets() bool {
 			zap.Error(err),
 		)
 		if w.PanicOnSocketError {
+			w.ShutdownWhenInEc2()
 			panic(err)
 		}
 	}
@@ -212,6 +216,12 @@ func (w *Wrapped) StopProcess() {
 		}
 	}
 
+	w.ShutdownWhenInEc2()
+
+	w.logger.Info("goodbye !")
+}
+
+func (w *Wrapped) ShutdownWhenInEc2() {
 	if w.InEc2Instance {
 		w.logger.Info("issue shutdown in 1 minutes")
 		cmd := exec.Command("shutdown", "+1")
@@ -222,8 +232,6 @@ func (w *Wrapped) StopProcess() {
 			w.NotifyBackend("🚫 Error worth checking in the EC2 instance")
 		}
 	}
-
-	w.logger.Info("goodbye !")
 }
 
 func (w *Wrapped) retrieveData() error {
