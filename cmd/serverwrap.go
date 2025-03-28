@@ -80,6 +80,7 @@ func main() {
 				wrapped.NotifyBackend("🚫 Error worth checking in the EC2 instance")
 			}
 			if terminationNotified {
+				logger.Info("spot termination detected")
 				return
 			}
 		case <-sigC:

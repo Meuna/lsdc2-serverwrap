@@ -46,14 +46,14 @@ type Wrapped struct {
 	LogScans       bool     `env:"LSDC2_LOG_SCANS" envDefault:"false"`
 	LogFilter      []string `env:"LSDC2_LOG_FILTER" envSeparator:";"`
 
-	PanicOnSocketError bool `env:"PANIC_ON_SOCKET_ERROR" envDefault:"true"`
+	PanicOnSocketError   bool `env:"PANIC_ON_SOCKET_ERROR" envDefault:"true"`
+	DisableShutdownCalls bool `env:"DISABLE_SHUTDOWN_CALLS" envDefault:"false"`
 }
 
 func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	w := Wrapped{}
 	var err error
 	if err = env.Parse(&w); err != nil {
-		w.ShutdownWhenInEc2()
 		panic(err)
 	}
 	// This is not redundant with the envDefault defined in Config
@@ -222,6 +222,10 @@ func (w *Wrapped) StopProcess() {
 }
 
 func (w *Wrapped) ShutdownWhenInEc2() {
+	// Clear early return if this is true
+	if w.DisableShutdownCalls {
+		return
+	}
 	if w.InEc2Instance {
 		w.logger.Info("issue shutdown")
 		cmd := exec.Command("shutdown", "now")
