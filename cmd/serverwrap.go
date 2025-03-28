@@ -48,8 +48,6 @@ func main() {
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
 
 	defer func() {
-		close(pollingC)
-		close(sigC)
 		terminationCheckTicker.Stop()
 		sniffTicker.Stop()
 		emptyTicker.Stop()
