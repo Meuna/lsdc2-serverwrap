@@ -11,6 +11,12 @@ import (
 	"go.uber.org/zap"
 )
 
+var (
+	Version   = "dev"
+	Commit    = "none"
+	BuildDate = "unknown"
+)
+
 func main() {
 	var logger *zap.Logger
 	if os.Getenv("DEBUG") != "" {
@@ -19,6 +25,8 @@ func main() {
 		logger, _ = zap.NewProduction()
 	}
 	defer logger.Sync() // flushes buffer, if any
+
+	logger.Info("Running serverwrap", zap.String("version", Version), zap.String("Commit", Commit), zap.String("BuildDate", BuildDate))
 
 	// Initialise wrapped from command line and env
 	wrapped := internal.NewWrapped(logger, os.Args[1:])
