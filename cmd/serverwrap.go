@@ -72,15 +72,17 @@ func main() {
 			}()
 		case <-emptyTicker.C:
 			logger.Info("server empty for too long")
+			wrapped.NotifyBackend("info", "Server empty. Terminating instance.")
 			return
 		case <-terminationCheckTicker.C:
 			terminationNotified, err := internal.SpotTerminationIsNotified()
 			if err != nil {
 				logger.Error("error getting termination notification", zap.Error(err))
-				wrapped.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+				wrapped.NotifyBackend("error", "Error worth checking in the EC2 instance")
 			}
 			if terminationNotified {
 				logger.Info("spot termination detected")
+				wrapped.NotifyBackend("info", "SPOT termination detected. Terminating instance.")
 				return
 			}
 		case <-sigC:

@@ -75,10 +75,7 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	w.logger = logger
 	w.cl = cl
 	w.sigWith = syscall.SIGTERM
-	w.InEc2Instance, err = AreWeRunningEc2()
-	if err != nil {
-		w.NotifyBackend("🚫 Error worth checking in the logs")
-	}
+	w.InEc2Instance = AreWeRunningEc2()
 
 	return w
 }
@@ -100,8 +97,10 @@ func (w *Wrapped) StartProcess() {
 		err := w.retrieveData()
 		if err != nil {
 			w.logger.Error("error in StartProcess", zap.String("culprit", "retrieveData"), zap.Error(err))
+			w.NotifyBackend("error", "Savegame was not restored")
 		} else {
 			w.logger.Info("S3 download done !")
+			w.NotifyBackend("info", "Savegame restored from S3")
 		}
 	}
 
@@ -183,7 +182,7 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 		for line := range wakeupChan {
 			timeSinceStart := time.Now().Sub(w.processStart)
 			w.logger.Info("sentinel found", zap.String("sentinel", line))
-			w.NotifyBackend(fmt.Sprintf("The server is ready ! (started in %.2fs)", timeSinceStart.Seconds()))
+			w.NotifyBackend("server-ready", fmt.Sprintf("The server is ready ! (started in %.2fs)", timeSinceStart.Seconds()))
 		}
 	}()
 }
@@ -216,6 +215,9 @@ func (w *Wrapped) StopProcess() {
 		err := w.archiveData()
 		if err != nil {
 			w.logger.Error("error in StopProcess", zap.String("culprit", "archiveData"), zap.Error(err))
+			w.NotifyBackend("error", "Error when exporting savegame to S3")
+		} else {
+			w.NotifyBackend("info", "Savegame exported to S3")
 		}
 	}
 
@@ -236,7 +238,7 @@ func (w *Wrapped) ShutdownWhenInEc2() {
 		err := cmd.Run()
 		if err != nil {
 			w.logger.Error("error in StopProcess", zap.String("culprit", "Run"), zap.Error(err))
-			w.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+			w.NotifyBackend("error", "Error worth checking in the EC2 instance")
 		}
 	}
 }
@@ -257,18 +259,20 @@ func (w *Wrapped) archiveData() error {
 	}
 }
 
-func (w *Wrapped) NotifyBackend(msg string) {
+func (w *Wrapped) NotifyBackend(action string, msg string) {
 	cmd := struct {
 		Api  string
 		Args any
 	}{
 		Api: "tasknotify",
 		Args: struct {
-			InstanceName string
-			Message      string
+			ServerName string
+			Action     string
+			Message    string
 		}{
-			InstanceName: w.Server,
-			Message:      msg,
+			ServerName: w.Server,
+			Action:     action,
+			Message:    msg,
 		},
 	}
 	bodyBytes, err := json.Marshal(cmd)
