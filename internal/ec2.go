@@ -1,10 +1,8 @@
 package internal
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"time"
 )
@@ -14,22 +12,11 @@ const SpotTerminationEndpoint = "http://169.254.169.254/latest/meta-data/spot/te
 
 var __token string
 
-func AreWeRunningEc2() (inEc2 bool, err error) {
+func AreWeRunningEc2() bool {
 	var someErr error
 	__token, someErr = getImdsv2Token()
 
-	if someErr != nil {
-		var netErr net.Error
-		if errors.As(someErr, &netErr) && netErr.Timeout() {
-			inEc2 = false
-			err = nil
-		} else {
-			err = someErr
-		}
-	} else {
-		inEc2 = true
-	}
-	return
+	return someErr == nil
 }
 
 func SpotTerminationIsNotified() (bool, error) {
