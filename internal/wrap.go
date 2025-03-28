@@ -16,10 +16,11 @@ import (
 )
 
 type Wrapped struct {
-	logger  *zap.Logger
-	cl      []string
-	cmd     *exec.Cmd
-	sigWith os.Signal
+	logger       *zap.Logger
+	cl           []string
+	cmd          *exec.Cmd
+	sigWith      os.Signal
+	processStart time.Time
 
 	Home string `env:"LSDC2_HOME"`
 	Uid  int    `env:"LSDC2_UID"`
@@ -76,7 +77,7 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	w.sigWith = syscall.SIGTERM
 	w.InEc2Instance, err = AreWeRunningEc2()
 	if err != nil {
-		w.NotifyBackend("🚫 Error worth checking in the EC2 instance")
+		w.NotifyBackend("🚫 Error worth checking in the logs")
 	}
 
 	return w
@@ -141,6 +142,7 @@ func (w *Wrapped) StartProcess() {
 		w.enableStdScans(scannedStreams)
 	}
 	w.logger.Info("process started")
+	w.processStart = time.Now()
 }
 
 func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
@@ -179,8 +181,9 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 	}()
 	go func() {
 		for line := range wakeupChan {
+			timeSinceStart := time.Now().Sub(w.processStart)
 			w.logger.Info("sentinel found", zap.String("sentinel", line))
-			w.NotifyBackend("The server is ready !")
+			w.NotifyBackend(fmt.Sprintf("The server is ready ! (started in %.2fs)", timeSinceStart.Seconds()))
 		}
 	}()
 }
