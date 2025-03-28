@@ -14,21 +14,22 @@ const SpotTerminationEndpoint = "http://169.254.169.254/latest/meta-data/spot/te
 
 var __token string
 
-func AreWeRunningEc2() (bool, error) {
+func AreWeRunningEc2() (inEc2 bool, err error) {
 	var someErr error
 	__token, someErr = getImdsv2Token()
 
 	if someErr != nil {
 		var netErr net.Error
 		if errors.As(someErr, &netErr) && netErr.Timeout() {
-			return true, nil
+			inEc2 = false
+			err = nil
 		} else {
-			return false, someErr
+			err = someErr
 		}
-
+	} else {
+		inEc2 = true
 	}
-
-	return true, nil
+	return
 }
 
 func SpotTerminationIsNotified() (bool, error) {
