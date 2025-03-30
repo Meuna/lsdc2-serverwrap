@@ -35,6 +35,7 @@ type Wrapped struct {
 
 	InEc2Instance         bool
 	TerminationCheckDelay time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"10s"`
+	SignalGraceDelay      time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"20s"`
 	Iface                 string        `env:"LSDC2_SNIFF_IFACE"`
 	SniffFilter           string        `env:"LSDC2_SNIFF_FILTER"`
 	SniffTimeout          time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
@@ -204,6 +205,10 @@ func (w *Wrapped) PollProcessPackets() bool {
 }
 
 func (w *Wrapped) StopProcess() {
+	// Grace delay after warning
+	time.Sleep(w.SignalGraceDelay)
+
+	// Stop the process
 	w.cmd.Process.Signal(w.sigWith)
 	w.cmd.Wait()
 

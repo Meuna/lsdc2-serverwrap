@@ -82,11 +82,12 @@ func main() {
 			}
 			if terminationNotified {
 				logger.Info("spot termination detected")
-				wrapped.NotifyBackend("info", "SPOT termination detected. Terminating instance.")
+				wrapped.NotifyBackend("warning", "SPOT termination detected. Terminating instance.")
 				return
 			}
 		case <-sigC:
 			logger.Info("received signal")
+			wrapped.NotifyBackend("warning", "Signal received. Terminating instance.")
 			return
 		}
 	}
