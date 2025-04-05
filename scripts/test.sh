@@ -3,6 +3,7 @@
 script_dir=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 src_dir=$script_dir/..
 
+export DEBUG=1
 export LSDC2_HOME=
 export LSDC2_UID=1000
 export LSDC2_GID=1000
@@ -24,5 +25,6 @@ export LSDC2_LOG_SCANS=true
 export LSDC2_LOG_FILTER="5 CET"
 export PANIC_ON_SOCKET_ERROR=false
 export DISABLE_SHUTDOWN_CALLS=true
+export LSDC2_LOW_MEMORY_WARNING_MB=15000
 
 $src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -40,8 +41,9 @@ func main() {
 
 	// Start channel monitoring
 	pollingC := make(chan bool)
-	terminationCheckTicker := time.NewTicker(wrapped.TerminationCheckDelay)
-	sniffTicker := time.NewTicker(wrapped.SniffDelay)
+	terminationCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
+	lowMemoryCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
+	sniffTicker := time.NewTicker(wrapped.SniffInterval)
 	emptyTicker := time.NewTicker(wrapped.EmptyTimeout)
 
 	sigC := make(chan os.Signal, 1)
@@ -49,6 +51,7 @@ func main() {
 
 	defer func() {
 		terminationCheckTicker.Stop()
+		lowMemoryCheckTicker.Stop()
 		sniffTicker.Stop()
 		emptyTicker.Stop()
 		wrapped.StopProcess()
@@ -56,6 +59,10 @@ func main() {
 
 	if !wrapped.InEc2Instance {
 		terminationCheckTicker.Stop()
+	}
+
+	if wrapped.LowMemoryWarningThresholdMiB == 0 && wrapped.LowMemorySignalThresholdMiB == 0 {
+		lowMemoryCheckTicker.Stop()
 	}
 
 	logger.Info("start monitoring network and signals")
@@ -75,6 +82,7 @@ func main() {
 			wrapped.NotifyBackend("info", "Server empty. Terminating instance.")
 			return
 		case <-terminationCheckTicker.C:
+			logger.Debug("checking SPOT termination")
 			terminationNotified, err := internal.SpotTerminationIsNotified()
 			if err != nil {
 				logger.Error("error getting termination notification", zap.Error(err))
@@ -84,6 +92,22 @@ func main() {
 				logger.Info("spot termination detected")
 				wrapped.NotifyBackend("warning", "SPOT termination detected. Terminating instance.")
 				return
+			}
+		case <-lowMemoryCheckTicker.C:
+			logger.Debug("checking low memory")
+			freeMemoryMib, err := internal.GetFreeMemoryMiB()
+			if err != nil {
+				logger.Error("error getting free memory", zap.Error(err))
+				wrapped.NotifyBackend("error", "Error checking free memory")
+			}
+			if freeMemoryMib < wrapped.LowMemorySignalThresholdMiB {
+				logger.Warn("low memory signal", zap.Int64("freeMemory", freeMemoryMib))
+				wrapped.NotifyBackend("warning", fmt.Sprintf("Memory limit breached (%d MiB). Terminating instance.", freeMemoryMib))
+				return
+			}
+			if freeMemoryMib < wrapped.LowMemoryWarningThresholdMiB {
+				logger.Warn("low memory warning", zap.Int64("freeMemory", freeMemoryMib))
+				wrapped.NotifyBackend("warning", fmt.Sprintf("Low memory warning (%d MiB)", freeMemoryMib))
 			}
 		case <-sigC:
 			logger.Info("received signal")

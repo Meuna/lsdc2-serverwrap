@@ -34,19 +34,23 @@ type Wrapped struct {
 	Zip          bool     `env:"LSDC2_ZIP"`
 	ZipFrom      string   `env:"LSDC2_ZIPFROM"`
 
-	InEc2Instance         bool
-	TerminationCheckDelay time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"10s"`
-	SignalGraceDelay      time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"20s"`
-	SniffFilter           string        `env:"LSDC2_SNIFF_FILTER"`
-	SniffTimeout          time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
-	SniffDelay            time.Duration `env:"LSDC2_SNIFF_DELAY" envDefault:"10s"`
-	EmptyTimeout          time.Duration `env:"LSDC2_EMPTY_TIMEOUT" envDefault:"5m"`
+	InEc2Instance            bool
+	TerminationCheckInterval time.Duration `env:"LSDC2_TERMINATION_CHECK_INTERVAL" envDefault:"10s"`
+	SignalGraceDelay         time.Duration `env:"LSDC2_SIGNAL_GRACE_DELAY" envDefault:"20s"`
+	SniffFilter              string        `env:"LSDC2_SNIFF_FILTER"`
+	SniffTimeout             time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
+	SniffInterval            time.Duration `env:"LSDC2_SNIFF_INTERVAL" envDefault:"10s"`
+	EmptyTimeout             time.Duration `env:"LSDC2_EMPTY_TIMEOUT" envDefault:"5m"`
 
 	ScanStderr     bool     `env:"LSDC2_SCAN_STDERR" envDefault:"false"`
 	ScanStdout     bool     `env:"LSDC2_SCAN_STDOUT" envDefault:"false"`
 	WakeupSentinel string   `env:"LSDC2_WAKEUP_SENTINEL"`
 	LogScans       bool     `env:"LSDC2_LOG_SCANS" envDefault:"false"`
 	LogFilter      []string `env:"LSDC2_LOG_FILTER" envSeparator:";"`
+
+	LowMemoryWarningThresholdMiB int64         `env:"LSDC2_LOW_MEMORY_WARNING_MB" envDefault:"0"`
+	LowMemorySignalThresholdMiB  int64         `env:"LSDC2_LOW_MEMORY_SIGNAL_MB" envDefault:"0"`
+	LowMemoryCheckInterval       time.Duration `env:"LSDC2_LOW_MEMORY_CHECK_INTERVAL" envDefault:"5s"`
 
 	PanicOnSocketError   bool `env:"PANIC_ON_SOCKET_ERROR" envDefault:"true"`
 	DisableShutdownCalls bool `env:"DISABLE_SHUTDOWN_CALLS" envDefault:"false"`
@@ -65,8 +69,8 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	if w.SniffTimeout == 0 {
 		w.SniffTimeout = 1 * time.Second
 	}
-	if w.SniffDelay == 0 {
-		w.SniffDelay = 10 * time.Second
+	if w.SniffInterval == 0 {
+		w.SniffInterval = 10 * time.Second
 	}
 	if w.EmptyTimeout == 0 {
 		w.EmptyTimeout = 5 * time.Minute
