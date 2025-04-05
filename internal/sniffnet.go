@@ -22,23 +22,26 @@ import "C"
 
 const MTU = 128
 
-func GetIP4(iface string) (net.IP, error) {
+// GetFirstIfaceWithIp4 return the first interface that is not a loopback
+// and its IP4 address
+func GetFirstIfaceWithIp4() (string, net.IP, error) {
 	errorBuf := (*C.char)(C.calloc(C.PCAP_ERRBUF_SIZE, 1))
 	defer C.free(unsafe.Pointer(errorBuf))
 	var alldevs *C.pcap_if_t
 	defer C.pcap_freealldevs(alldevs)
 
 	if C.pcap_findalldevs(&alldevs, errorBuf) < 0 {
-		return nil, errors.New(C.GoString(errorBuf))
+		return "", nil, errors.New(C.GoString(errorBuf))
 	}
 
 	d := alldevs
 	for d != nil {
-		if C.GoString(d.name) == iface {
+		iface := C.GoString(d.name)
+		if iface != "lo" {
 			a := d.addresses
 			for a != nil {
 				if a.addr.sa_family == syscall.AF_INET {
-					return ntoaIP4(a.addr), nil
+					return iface, ntoaIP4(a.addr), nil
 				}
 				a = a.next
 			}
@@ -46,7 +49,7 @@ func GetIP4(iface string) (net.IP, error) {
 		d = d.next
 	}
 
-	return nil, fmt.Errorf("%v: no AF_INET address found", iface)
+	return "", nil, errors.New("no iface with AF_INET address found")
 }
 
 func ntoaIP4(a *C.struct_sockaddr) net.IP {

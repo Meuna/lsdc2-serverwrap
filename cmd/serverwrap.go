@@ -33,7 +33,7 @@ func main() {
 	logger.Debug("wrapped initialised", zap.Any("wrapped", wrapped))
 
 	// Prepare BPF to filter on incomming IP4 packes
-	wrapped.UpdateFilterWithDestination()
+	wrapped.DetectIfaceAndAddHostFilter()
 
 	// Start the process
 	wrapped.StartProcess()

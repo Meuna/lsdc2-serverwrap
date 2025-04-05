@@ -21,6 +21,7 @@ type Wrapped struct {
 	cmd          *exec.Cmd
 	sigWith      os.Signal
 	processStart time.Time
+	iface        string
 
 	Home string `env:"LSDC2_HOME"`
 	Uid  int    `env:"LSDC2_UID"`
@@ -36,7 +37,6 @@ type Wrapped struct {
 	InEc2Instance         bool
 	TerminationCheckDelay time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"10s"`
 	SignalGraceDelay      time.Duration `env:"LSDC2_TERMINATION_CHECK_DELAY" envDefault:"20s"`
-	Iface                 string        `env:"LSDC2_SNIFF_IFACE"`
 	SniffFilter           string        `env:"LSDC2_SNIFF_FILTER"`
 	SniffTimeout          time.Duration `env:"LSDC2_SNIFF_TIMEOUT" envDefault:"1s"`
 	SniffDelay            time.Duration `env:"LSDC2_SNIFF_DELAY" envDefault:"10s"`
@@ -58,6 +58,7 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	if err = env.Parse(&w); err != nil {
 		panic(err)
 	}
+
 	// This is not redundant with the envDefault defined in Config
 	// struct because empty env variables are not equivalent to
 	// empty variables. The former makes the values 0
@@ -81,13 +82,18 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	return w
 }
 
-func (w *Wrapped) UpdateFilterWithDestination() {
-	if ip, err := GetIP4(w.Iface); err == nil {
+func (w *Wrapped) DetectIfaceAndAddHostFilter() {
+	if iface, ip, err := GetFirstIfaceWithIp4(); err == nil {
+		w.logger.Debug("found iface", zap.String("iface", iface), zap.String("ip", ip.String()))
 		filterWithDest := fmt.Sprintf("dst host %v", ip)
 		if w.SniffFilter != "" {
 			filterWithDest = fmt.Sprintf("(%v) and (%v)", filterWithDest, w.SniffFilter)
 		}
+		w.iface = iface
 		w.SniffFilter = filterWithDest
+	} else {
+		w.logger.Debug("iface not found, using 'any'", zap.Error(err))
+		w.iface = "any"
 	}
 	w.logger.Debug("final BPF filter", zap.String("filter", w.SniffFilter))
 }
@@ -189,10 +195,10 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 }
 
 func (w *Wrapped) PollProcessPackets() bool {
-	packetFound, err := PollFilteredIface(w.Iface, w.SniffFilter, w.SniffTimeout)
+	packetFound, err := PollFilteredIface(w.iface, w.SniffFilter, w.SniffTimeout)
 	if err != nil {
 		w.logger.Error("error polling network",
-			zap.String("iface", w.Iface),
+			zap.String("iface", w.iface),
 			zap.String("filter", w.SniffFilter),
 			zap.Error(err),
 		)
