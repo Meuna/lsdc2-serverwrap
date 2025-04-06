@@ -15,6 +15,7 @@ export LSDC2_BUCKET=munpri
 export LSDC2_SERVER=testserverwrap
 export LSDC2_ZIP=
 export LSDC2_ZIPFROM=$src_dir
+export LSDC2_CLOUDWATCH_LOG_GROUP=
 export LSDC2_SNIFF_TIMEOUT=
 export LSDC2_SNIFF_DELAY=
 export LSDC2_EMPTY_TIMEOUT=
@@ -23,8 +24,8 @@ export LSDC2_SCAN_STDOUT=true
 export LSDC2_WAKEUP_SENTINEL="0 CET"
 export LSDC2_LOG_SCANS=true
 export LSDC2_LOG_FILTER="5 CET"
+export LSDC2_LOW_MEMORY_WARNING_MB=15000
 export PANIC_ON_SOCKET_ERROR=false
 export DISABLE_SHUTDOWN_CALLS=true
-export LSDC2_LOW_MEMORY_WARNING_MB=15000
 
 $src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'

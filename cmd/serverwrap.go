@@ -25,7 +25,7 @@ func main() {
 	} else {
 		logger, _ = zap.NewProduction()
 	}
-	defer logger.Sync() // flushes buffer, if any
+	defer logger.Sync()
 
 	logger.Info("Running serverwrap", zap.String("version", Version), zap.String("Commit", Commit), zap.String("BuildDate", BuildDate))
 
@@ -33,13 +33,25 @@ func main() {
 	wrapped := internal.NewWrapped(logger, os.Args[1:])
 	logger.Debug("wrapped initialised", zap.Any("wrapped", wrapped))
 
+	// Setup CloudWatch logger if running in EC2
+	if wrapped.InEc2Instance {
+		newLogger, err := wrapped.NewEc2CloudWatchTeeLogger(logger)
+		if err != nil {
+			logger.Error("error in SetupEc2Monitoring", zap.Error(err))
+			wrapped.NotifyBackend("error", "Failure setting EC2 monitoring")
+		} else {
+			logger = newLogger
+			defer logger.Sync()
+		}
+	}
+
 	// Prepare BPF to filter on incomming IP4 packes
 	wrapped.DetectIfaceAndAddHostFilter()
 
 	// Start the process
 	wrapped.StartProcess()
 
-	// Start channel monitoring
+	// Start monitoring channels
 	pollingC := make(chan bool)
 	terminationCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
 	lowMemoryCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
@@ -104,8 +116,7 @@ func main() {
 				logger.Warn("low memory signal", zap.Int64("freeMemory", freeMemoryMib))
 				wrapped.NotifyBackend("warning", fmt.Sprintf("Memory limit breached (%d MiB). Terminating instance.", freeMemoryMib))
 				return
-			}
-			if freeMemoryMib < wrapped.LowMemoryWarningThresholdMiB {
+			} else if freeMemoryMib < wrapped.LowMemoryWarningThresholdMiB {
 				logger.Warn("low memory warning", zap.Int64("freeMemory", freeMemoryMib))
 				wrapped.NotifyBackend("warning", fmt.Sprintf("Low memory warning (%d MiB)", freeMemoryMib))
 			}

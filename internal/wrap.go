@@ -13,6 +13,7 @@ import (
 
 	"github.com/caarlos0/env"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Wrapped struct {
@@ -35,6 +36,8 @@ type Wrapped struct {
 	ZipFrom      string   `env:"LSDC2_ZIPFROM"`
 
 	InEc2Instance            bool
+	CloudWatchLogGroup       string        `env:"LSDC2_LOG_GROUP"`
+	CloudWatchFlushInterval  time.Duration `env:"LSDC2_LOG_FLUSH_INTERVAL" envDefault:"5s"`
 	TerminationCheckInterval time.Duration `env:"LSDC2_TERMINATION_CHECK_INTERVAL" envDefault:"10s"`
 	SignalGraceDelay         time.Duration `env:"LSDC2_SIGNAL_GRACE_DELAY" envDefault:"20s"`
 	SniffFilter              string        `env:"LSDC2_SNIFF_FILTER"`
@@ -84,6 +87,32 @@ func NewWrapped(logger *zap.Logger, cl []string) Wrapped {
 	w.InEc2Instance = AreWeRunningEc2()
 
 	return w
+}
+
+func (w *Wrapped) NewEc2CloudWatchTeeLogger(logger *zap.Logger) (*zap.Logger, error) {
+	w.InEc2Instance = true
+	instanceId, err := GetInstanceId()
+	if err != nil {
+		return nil, fmt.Errorf("GetInstanceId / %w", err)
+	}
+	cloudWatchCore, err := NewCloudWatchCore(
+		zap.InfoLevel,
+		w.CloudWatchLogGroup,
+		fmt.Sprintf("ec2/%s_instance/%s", w.Server, instanceId),
+		100,
+		w.CloudWatchFlushInterval,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("NewCloudWatchCore / %w", err)
+	}
+	teeCore := zapcore.NewTee(
+		cloudWatchCore,
+		logger.Core(),
+	)
+
+	w.logger = zap.New(teeCore)
+
+	return w.logger, nil
 }
 
 func (w *Wrapped) DetectIfaceAndAddHostFilter() {
