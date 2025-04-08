@@ -209,8 +209,6 @@ func (w *Wrapped) enableStdScans(streams []io.ReadCloser) {
 					wakeupChan <- line
 				}
 			}
-			close(logChan)
-			close(wakeupChan)
 		}()
 	}
 	go func() {
