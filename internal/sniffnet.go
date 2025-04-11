@@ -41,7 +41,10 @@ func GetFirstIfaceWithIp4() (string, net.IP, error) {
 			a := d.addresses
 			for a != nil {
 				if a.addr.sa_family == syscall.AF_INET {
-					return iface, ntoaIP4(a.addr), nil
+					ip4 := ntoaIP4(a.addr)
+					if !ip4.IsLinkLocalUnicast() {
+						return iface, ip4, nil
+					}
 				}
 				a = a.next
 			}
